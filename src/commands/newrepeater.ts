@@ -42,6 +42,14 @@ const NewRepeaterCommand: BotCommand = {
           { name: 'Embed Message', value: 'embed' }
         )
     )
+    .addStringOption((option) =>
+      option
+        .setName('start_time')
+        .setDescription('The precise time for the first run (e.g., "14:30" for 2:30 PM today/tomorrow).')
+        .setRequired(true)
+        .setMinLength(5)
+        .setMaxLength(5)
+    )
     .addNumberOption((option) =>
       option
         .setName('repeat_hours')
@@ -85,6 +93,7 @@ const NewRepeaterCommand: BotCommand = {
     const content = interaction.options.get('content', true)?.value as string;
     const title = interaction.options.get('title')?.value as string | undefined;
     const type = interaction.options.get('type', true)?.value as 'message' | 'embed';
+    const startTime = interaction.options.get('start_time').value as string;
     const repeatHours = interaction.options.get('repeat_hours', true)?.value as number;
     const color = interaction.options.get('color')?.value as string | undefined;
     const footer = interaction.options.get('footer')?.value as string | undefined;
@@ -120,10 +129,38 @@ const NewRepeaterCommand: BotCommand = {
       }
     }
 
+    let firstRunTime: Date;
+    const now = new Date();
+
+    if (startTime) {
+      const timeRegex = /^([01]?[0-9]|2[0-3]):([0-5][0-9])$/; 
+      const match = startTime.match(timeRegex);
+
+      if (!match) {
+        await interaction.editReply({
+          content: 'Invalid `start_time` format. Please use HH:MM (e.g., `14:30` for 2:30 PM).',
+        });
+        return;
+      }
+
+      const hour = parseInt(match[1] as string, 10);
+      const minute = parseInt(match[2] as string, 10);
+
+      let desiredTime = new Date();
+      desiredTime.setHours(hour, minute, 0, 0);
+
+      if (desiredTime.getTime() <= now.getTime()) {
+        desiredTime.setDate(desiredTime.getDate() + 1);
+      }
+      firstRunTime = desiredTime;
+
+      firstRunTime = new Date(firstRunTime.getTime() + 5 * 1000);
+    } else {
+      firstRunTime = new Date(now.getTime() + repeatHours * 60 * 60 * 1000);
+      firstRunTime.setSeconds(0, 0);
+      firstRunTime.setMinutes(firstRunTime.getMinutes() + 1);
+    }
     try {
-      const now = new Date();
-      // Calculate the first run time for the message
-      const nextRun = new Date(now.getTime() + repeatHours * 60 * 60 * 1000);
 
       // Create a new message record in the database using the Sequelize model
       await Message.create({
