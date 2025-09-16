@@ -2,50 +2,98 @@ import {
   Client,
   CommandInteraction,
   Events,
-  MessageFlags
+  MessageFlags,
+  REST,
+  Routes
 } from 'discord.js';
 import type { ApplicationCommandDataResolvable } from 'discord.js';
 import { Sequelize } from 'sequelize';
+import * as dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs/promises';
-import crypto from 'crypto';
+import { calculateChecksum } from '../utils/checksum.js';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { Command } from '../database/models/Command.js';
 import { logToConsole } from '../utils/logger.js';
 
-// ESM equivalent of __dirname and __filename
+dotenv.config({ quiet: true });
+
+const TOKEN = process.env.DISCORD_TOKEN as string;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Interface for our bot's command structure
 export interface BotCommand {
-  // Command definition for Discord API (e.g., name, description, options)
   data: ApplicationCommandDataResolvable;
-  // The function to execute when the command is called
-  // It receives the interaction object, the Discord client, and the Sequelize instance.
   execute: (
     interaction: CommandInteraction,
     client: Client,
     sequelize: Sequelize
   ) => Promise<void>;
-  // Optional: Cooldown in seconds for this command
   cooldown?: number;
-  // Optional: Guild ID for guild-specific commands (if not global)
   guildId?: string;
 }
 
-// A map to store all loaded commands, keyed by command name.
-// This allows the interaction listener to quickly find and execute the correct command.
 const loadedCommands = new Map<string, BotCommand>();
+let _allBotCommandsData: ApplicationCommandDataResolvable[] | null = null;
+let _commandChecksums: Map<string, string> | null = null;
+
 
 /**
- * Calculates a simple MD5 checksum of a string.
- * Used to detect changes in command definitions for conditional registration.
- * @param content The string content to hash.
- * @returns The MD5 hash string.
+ * Reads all command files, processes their data, and populates the `loadedCommands` map.
+ * This function is designed to be called once to get the master list of commands.
+ * It caches the results for subsequent calls.
+ *
+ * @returns An array of all ApplicationCommandDataResolvable objects.
  */
-function calculateChecksum(content: string): string {
-  return crypto.createHash('md5').update(content).digest('hex');
+export async function getAllBotCommandsData(): Promise<ApplicationCommandDataResolvable[]> {
+  if (_allBotCommandsData && _commandChecksums) {
+    return _allBotCommandsData;
+  }
+
+  logToConsole('process_start', 'COMMAND_LOADER', 'Initializing command data from files.');
+
+  const commandsDir = path.join(__dirname);
+  const commandFiles = (await fs.readdir(commandsDir)).filter((file) =>
+    file.endsWith('.ts')
+  );
+
+  const currentAllCommands: ApplicationCommandDataResolvable[] = [];
+  const currentCommandChecksums = new Map<string, string>();
+
+  for (const file of commandFiles) {
+    if (file === 'index.ts') continue;
+
+    const commandName = path.parse(file).name;
+    const filePath = path.join(commandsDir, file.replace('.ts', '.js'));
+    const fileUrl = pathToFileURL(filePath).href;
+
+    try {
+      const commandModule = await import(fileUrl);
+      if (
+        commandModule.default &&
+        (commandModule.default as BotCommand).data &&
+        (commandModule.default as BotCommand).execute
+      ) {
+        const command: BotCommand = commandModule.default;
+        loadedCommands.set(commandName, command);
+
+        currentAllCommands.push(command.data);
+        const commandDataJson = JSON.stringify(command.data);
+        currentCommandChecksums.set(commandName, calculateChecksum(commandDataJson));
+        logToConsole('success', 'COMMAND_LOADER', `Command data loaded: /${commandName}`);
+      } else {
+        logToConsole('warning', 'COMMAND_LOADER', `${file} does not export a valid default command object (missing data or execute). Skipping.`);
+      }
+    } catch (error) {
+      logToConsole('danger', 'COMMAND_LOADER', `Error loading command file ${file}: ${error}`);
+    }
+  }
+  logToConsole('process_end', 'COMMAND_LOADER', `All command files processed. ${currentAllCommands.length} commands found.`);
+
+  _allBotCommandsData = currentAllCommands;
+  _commandChecksums = currentCommandChecksums;
+
+  return currentAllCommands;
 }
 
 /**
@@ -62,84 +110,82 @@ export async function loadCommands(
   sequelize: Sequelize,
   clientId: string
 ): Promise<void> {
-  logToConsole('process_start', 'COMMAND_LOADER', 'Reading src/commands to begin loading command files.');
+  logToConsole('process_start', 'COMMAND_LOADER', 'Starting command loading and registration process.');
 
-  const commandsDir = path.join(__dirname); // This points to src/commands
-  const commandFiles = (await fs.readdir(commandsDir)).filter((file) =>
-    file.endsWith('.ts')
-  );
+  // --- Get all command data ---
+  const allCommands = await getAllBotCommandsData();
+  const commandChecksums = _commandChecksums!;
+  logToConsole('process_start', 'COMMAND_LOADER', `Beginning Global Command Registration Process`);
 
-  const availableCommands: ApplicationCommandDataResolvable[] = [];
-  const commandsToRegister: ApplicationCommandDataResolvable[] = [];
-  const commandChecksums = new Map<string, string>();
+  let shouldPerformAPIPut: boolean = false;
 
-  for (const file of commandFiles) {
-    if (file === 'index.ts') continue;
-
-    const commandName = path.parse(file).name;
-    const filePath = path.join(commandsDir, file.replace('.ts', '.js'));
-    const fileUrl = pathToFileURL(filePath).href; // Convert to URL for dynamic import
-
-    try {
-      const commandModule = await import(fileUrl);
-      if (
-        commandModule.default &&
-        (commandModule.default as BotCommand).data &&
-        (commandModule.default as BotCommand).execute
-      ) {
-        const command: BotCommand = commandModule.default;
-        loadedCommands.set(commandName, command);
-
-        availableCommands.push(command.data);
-        const commandDataJson = JSON.stringify(command.data);
-        commandChecksums.set(commandName, calculateChecksum(commandDataJson));
-        logToConsole('success', 'COMMAND_LOADER', `Command loaded: /${commandName} with data`);
-      } else {
-        logToConsole('warning', 'COMMAND_LOADER', `${file} does not export a valid default command object (missing data or execute). Skipping.`);
-      }
-    } catch (error) {
-      logToConsole('danger', 'COMMAND_LOADER', `Error loading command file ${file}: ${error}`);
-    }
-  }
-  logToConsole('process_end', 'COMMAND_LOADER', `All command files processed.`);
-  logToConsole('process_start', 'COMMAND_LOADER', `Beginning Command Registration Process`);
-
-  for (const commandData of availableCommands) {
+  for (const commandData of allCommands) {
     const name = (commandData as any).name;
     const currentChecksum = commandChecksums.get(name);
 
     if (!currentChecksum) {
-      logToConsole('danger', 'COMMAND_LOADER', `Checksum not found for command: ${name}. Skipping registration.`);
+      logToConsole('danger', 'COMMAND_LOADER', `Checksum not found for command: ${name}. This indicates an internal issue.`);
+      shouldPerformAPIPut = true;
       continue;
     }
 
     try {
       const dbCommand = await Command.findOne({ where: { name: name } });
+
+      const forceRefresh = process.env.FORCE_COMMAND_REFRESH === 'true';
+
       if (
         !dbCommand ||
-        dbCommand.checksum !== currentChecksum ||
-        (process.env.NODE_ENV === 'development' &&
-          process.env.FORCE_COMMAND_REFRESH === 'true')
+        dbCommand.checksum !== currentChecksum || 
+        forceRefresh 
       ) {
-        logToConsole('process_repeat', 'COMMAND_LOADER', `/${name} changed. Adding to command registration list.`);
-        await Command.upsert({
+        logToConsole('process_repeat', 'COMMAND_LOADER', `/${name} changed (or is new/forced). Will trigger global API update.`);
+        shouldPerformAPIPut = true;
+
+         const commandAttributes = {
           name: name,
-          description: (commandData as any).description || '',
+          description: (commandData as any).description || null,
           lastUpdated: Math.floor(Date.now() / 1000), // Unix timestamp
           checksum: currentChecksum,
-        });
-        console.log(commandData);
-        commandsToRegister.push(commandData);
-        
+        };
+
+        if (dbCommand) {
+          await dbCommand.update(commandAttributes);
+          logToConsole('success', 'COMMAND_LOADER', `/${name} existing global command database entry updated.`);
+        } else {
+          await Command.create(commandAttributes);
+          logToConsole('success', 'COMMAND_LOADER', `/${name} new global command database entry created.`);
+        }
+
       } else {
-        logToConsole('info', 'COMMAND_LOADER', `/${name} matches checksum and is up-to-date. Skipping Discord Registration.`);
+        logToConsole('info', 'COMMAND_LOADER', `/${name} matches checksum and is up-to-date.`);
       }
     } catch (error) {
-      logToConsole('danger', 'COMMAND_LOADER', `${name} could not be registered or updated: ${error}`);
+      logToConsole('danger', 'COMMAND_LOADER', `Error processing /${name} for DB/Checksum check: ${error}`);
+      shouldPerformAPIPut = true;
     }
-    await client.application?.commands.set(commandsToRegister);
   }
-  logToConsole('process_end', 'COMMAND_LOADER', `All Command Registration & Database Update attempts completed.`);
+
+  if (shouldPerformAPIPut) {
+    if (!TOKEN || !clientId) {
+      logToConsole('danger', 'COMMAND_LOADER', 'DISCORD_TOKEN or CLIENT_ID missing. Cannot perform global command registration.');
+      return;
+    }
+    logToConsole('process_start', 'COMMAND_LOADER', `Performing global command registration via Discord API`);
+    const rest = new REST().setToken(TOKEN);
+    try {
+      await rest.put(
+        Routes.applicationCommands(clientId),
+        { body: allCommands } 
+      );
+      logToConsole('success', 'COMMAND_LOADER', `Successfully sent ${allCommands.length} global commands to Discord.`);
+    } catch (error) {
+      logToConsole('danger', 'COMMAND_LOADER', `Error performing global command registration: ${error}`);
+    }
+    logToConsole('process_end', 'COMMAND_LOADER', `All global command changes made to database and Discord API`);
+  } else {
+    logToConsole('process_end', 'COMMAND_LOADER', `No global command changes detected or forced. Skipping Discord API registration.`);
+  }
 
   client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isChatInputCommand()) return;

@@ -13,9 +13,9 @@ import type { BotCommand } from './index.js';
 import { Message } from '../database/models/Message.js';
 import { formatLogTimestamp } from '../utils/datetime.js';
 
-const NewMessageCommand: BotCommand = {
+const NewRepeaterCommand: BotCommand = {
   data: new SlashCommandBuilder()
-    .setName('newmessage')
+    .setName('newrepeater')
     .setDescription('Creates a new recurring scheduled message.')
     .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageChannels)
     .addChannelOption((option) =>
@@ -55,7 +55,7 @@ const NewMessageCommand: BotCommand = {
         .setName('title')
         .setDescription('The title for the message (e.g., for embeds).')
         .setRequired(false)
-        .setMaxLength(255)
+        .setMaxLength(256)
     )
     .addStringOption((option) =>
       option
@@ -65,7 +65,6 @@ const NewMessageCommand: BotCommand = {
         .setMinLength(7)
         .setMaxLength(7)
     )
-    // Add an optional String Option for embed footer text
     .addStringOption((option) =>
       option
         .setName('footer')
@@ -137,13 +136,12 @@ const NewMessageCommand: BotCommand = {
         footer_text: footer || null,
         repeat_hours: repeatHours,
         times_sent: 0,
-        lastRunAt: null, // New messages haven't been sent yet
-        nextRunAt: nextRun, // Schedule the first run
-        message_active: 1, // Message is active by default
+        lastRunAt: null,
+        nextRunAt: nextRun,
+        message_active: 1,
       });
 
-      // --- Provide feedback to the user ---
-      let replyContent = `☑️ Scheduled message created successfully!\nIt will repeat every \`${repeatHours} hours\` in ${channel} (${channel.name}).\n**First run scheduled for:** \`${nextRun.toLocaleString()}\` (your local time).`;
+      let replyContent = `☑️ Scheduled message created successfully!\nIt will repeat every \`${repeatHours} hours\` in ${channel}.\n**First run scheduled for:** \`${nextRun.toLocaleString()}\`.`;
 
       if (type === 'embed') {
         // Prepare a preview embed for the reply
@@ -151,12 +149,12 @@ const NewMessageCommand: BotCommand = {
           .setTitle(title || 'Scheduled Message Preview')
           .setDescription(content)
           .setFooter({ text: footer || 'Scheduled Message' })
-          .setTimestamp(now); // Use current time for preview timestamp
+          .setTimestamp(now);
 
         if (color) {
           embedPreview.setColor(color as ColorResolvable);
         } else {
-          embedPreview.setColor('#0099ff'); // Default embed color if none provided
+          embedPreview.setColor('#0099ff');
         }
 
         await interaction.editReply({
@@ -181,4 +179,4 @@ const NewMessageCommand: BotCommand = {
   },
 };
 
-export default NewMessageCommand;
+export default NewRepeaterCommand;

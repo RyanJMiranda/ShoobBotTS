@@ -9,8 +9,11 @@ import * as dotenv from 'dotenv';
 import { initializeSequelize } from './database/sequelize.js';
 import { onReady } from './events/ready.js';
 import { logToConsole } from './utils/logger.js';
+import { clearAllCachedGuildCommands } from './utils/guild_commands.js';
+import { handleGuildCreate } from './events/guildcreate.js';
+import { loadCommands } from './commands/index.js';
 
-dotenv.config();
+dotenv.config({quiet: true});
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
@@ -37,8 +40,15 @@ const client = new Client({
 client.once(Events.ClientReady, async () => {
   try {
     const sequelize = await initializeSequelize();
-    await onReady(client, sequelize);
 
+    if (process.env.SHOULD_CLEAR_ALL_GUILD_COMMANDS === 'true') {
+      logToConsole('process_start', 'BOT', `Developer flag "SHOULD_CLEAR_ALL_GUILD_COMMANDS" is true. Initiating full guild command cleanup.`);
+      await clearAllCachedGuildCommands(client, TOKEN);
+      logToConsole('process_end', 'BOT', `Finished full guild command cleanup.`);
+    }
+
+    await onReady(client, sequelize);
+    
   } catch (error) {
     logToConsole('danger', 'BOT', `FATAL ERROR: Bot failed to initialize during ClientReady event: ${error}`);
     process.exit(1);

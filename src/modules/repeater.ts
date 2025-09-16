@@ -43,7 +43,7 @@ async function sendScheduledMessages(client: Client): Promise<void> {
     });
 
     if (messagesToSend.length === 0) {
-      logToConsole('warning', 'REPEATER', 'Found no messages to send. Sleeping until next CRON run.');
+      logToConsole('process_end', 'REPEATER', 'Found no messages to send. Sleeping until next CRON run.');
       return;
     }
     logToConsole('success', 'REPEATER', `Found ${messagesToSend.length} message(s) to send.`);
