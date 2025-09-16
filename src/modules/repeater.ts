@@ -1,7 +1,7 @@
 // src/modules/repeater.ts
 import { Client, TextChannel, EmbedBuilder, type ColorResolvable } from 'discord.js';
 import { Message } from '../database/models/Message.js';
-import { formatLogTimestamp } from '../utils/datetime.js';
+import { logToConsole } from '../utils/logger.js';
 import { Op } from 'sequelize';
 import cron from 'node-cron';
 
@@ -12,14 +12,13 @@ const CRON_SCHEDULE = '* * * * *'; // Every minute
  * This function is designed to be called by the `loadModules` system.
  */
 export default async function (client: Client): Promise<void> {
-  console.log(formatLogTimestamp() + '🔄 Repeater Module: Initializing scheduled message service...');
+  logToConsole('process_start', 'REPEATER', 'Initializing module to send repeating scheduled messages');
 
   // Start the cron job
   cron.schedule(CRON_SCHEDULE, async () => {
     await sendScheduledMessages(client);
   });
-
-  console.log(formatLogTimestamp() + `🟩 Repeater Module: Scheduled message service started with cron job: "${CRON_SCHEDULE}".`);
+  logToConsole('success', 'REPEATER', `Scheduled message service started with cron job: "${CRON_SCHEDULE}"`);
 }
 
 /**
@@ -27,7 +26,7 @@ export default async function (client: Client): Promise<void> {
  * @param client The Discord client instance.
  */
 async function sendScheduledMessages(client: Client): Promise<void> {
-  console.log(formatLogTimestamp() + '🔄 Repeater Module: Checking for messages to send...');
+  logToConsole('process_repeat', 'REPEATER', `Checking database for messages to send`);
 
   try {
     const now = new Date();
@@ -44,27 +43,22 @@ async function sendScheduledMessages(client: Client): Promise<void> {
     });
 
     if (messagesToSend.length === 0) {
-      console.log(formatLogTimestamp() + '🟨 Repeater Module: Found no messages to send.');
+      logToConsole('warning', 'REPEATER', 'Found no messages to send. Sleeping until next CRON run.');
       return;
     }
-
-    console.log(formatLogTimestamp() + `🟩 Repeater Module: Found ${messagesToSend.length} message(s) to send.`);
+    logToConsole('success', 'REPEATER', `Found ${messagesToSend.length} message(s) to send.`);
 
     for (const messageRecord of messagesToSend) {
       const channel = await client.channels.fetch(messageRecord.channel_id);
 
       if (!channel) {
-        console.warn(
-          formatLogTimestamp() + `🟨 Repeater Module: Channel ${messageRecord.channel_id} not found for message ID ${messageRecord.id}. Skipping.`
-        );
+        logToConsole('warning', 'REPEATER', `Channel ${messageRecord.channel_id} not found for message ID ${messageRecord.id}. Skipping & Deactivating Message.`);
         messageRecord.update({ message_active: 0 });
         continue;
       }
 
       if (!channel.isTextBased()) {
-        console.warn(
-          formatLogTimestamp() + `🟨 Repeater Module: Channel ${messageRecord.channel_id} is not a text channel for message ID ${messageRecord.id}. Skipping.`
-        );
+        logToConsole('warning', 'REPEATER', `Channel ${messageRecord.channel_id} is not a text channel for message ID ${messageRecord.id}. Skipping & Deactivating Message.`);
         messageRecord.update({ message_active: 0 });
         continue;
       }
@@ -87,8 +81,7 @@ async function sendScheduledMessages(client: Client): Promise<void> {
         } else {
           await (channel as TextChannel).send(messageRecord.message);
         }
-
-        console.log(formatLogTimestamp() + `🟩 Repeater Module: Sent message ID ${messageRecord.id} to channel ${messageRecord.channel_id}.`);
+        logToConsole('success', 'REPEATER', `Sent message ID ${messageRecord.id} to channel ${messageRecord.channel_id}.`);
 
         const nextRun = new Date(now.getTime() + messageRecord.repeat_hours * 60 * 60 * 1000);
 
@@ -99,13 +92,10 @@ async function sendScheduledMessages(client: Client): Promise<void> {
         });
 
       } catch (error) {
-        console.error(
-          formatLogTimestamp() + `🟥 Repeater Module: Error sending message ID ${messageRecord.id} to channel ${messageRecord.channel_id}:`,
-          error
-        );
+        logToConsole('danger', 'REPEATER', `Error sending message ID ${messageRecord.id} to channel ${messageRecord.channel_id}: ${error}`);
       }
     }
   } catch (dbError) {
-    console.error(formatLogTimestamp() + '🟥 Repeater Module: Database error fetching messages:', dbError);
+    logToConsole('danger', 'REPEATER', `Database error fetching messages: ${dbError}`);
   }
 }

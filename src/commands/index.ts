@@ -2,6 +2,7 @@ import {
   Client,
   CommandInteraction,
   Events,
+  MessageFlags
 } from 'discord.js';
 import type { ApplicationCommandDataResolvable } from 'discord.js';
 import { Sequelize } from 'sequelize';
@@ -10,7 +11,7 @@ import fs from 'fs/promises';
 import crypto from 'crypto';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { Command } from '../database/models/Command.js';
-import { formatLogTimestamp } from '../utils/datetime.js';
+import { logToConsole } from '../utils/logger.js';
 
 // ESM equivalent of __dirname and __filename
 const __filename = fileURLToPath(import.meta.url);
@@ -61,13 +62,14 @@ export async function loadCommands(
   sequelize: Sequelize,
   clientId: string
 ): Promise<void> {
-  console.log(`${formatLogTimestamp()}🔄 Commands: Starting to load commands from src/commands...`);
+  logToConsole('process_start', 'COMMAND_LOADER', 'Reading src/commands to begin loading command files.');
 
   const commandsDir = path.join(__dirname); // This points to src/commands
   const commandFiles = (await fs.readdir(commandsDir)).filter((file) =>
     file.endsWith('.ts')
   );
 
+  const availableCommands: ApplicationCommandDataResolvable[] = [];
   const commandsToRegister: ApplicationCommandDataResolvable[] = [];
   const commandChecksums = new Map<string, string>();
 
@@ -88,29 +90,26 @@ export async function loadCommands(
         const command: BotCommand = commandModule.default;
         loadedCommands.set(commandName, command);
 
-        commandsToRegister.push(command.data);
+        availableCommands.push(command.data);
         const commandDataJson = JSON.stringify(command.data);
         commandChecksums.set(commandName, calculateChecksum(commandDataJson));
-
-        console.log(`${formatLogTimestamp()}🟩 Commands: Command loaded: /${commandName} with data`);
+        logToConsole('success', 'COMMAND_LOADER', `Command loaded: /${commandName} with data`);
       } else {
-        console.warn(
-          `${formatLogTimestamp()}🟨 Commands: Command file ${file} does not export a valid default command object (missing data or execute). Skipping.`
-        );
+        logToConsole('warning', 'COMMAND_LOADER', `${file} does not export a valid default command object (missing data or execute). Skipping.`);
       }
     } catch (error) {
-      console.error(`${formatLogTimestamp()}🟥 Commands: Error loading command file ${file}:`, error);
-      console.error(error);
+      logToConsole('danger', 'COMMAND_LOADER', `Error loading command file ${file}: ${error}`);
     }
   }
-  console.log(`${formatLogTimestamp()}☑️  Commands: All command files processed.`);
+  logToConsole('process_end', 'COMMAND_LOADER', `All command files processed.`);
+  logToConsole('process_start', 'COMMAND_LOADER', `Beginning Command Registration Process`);
 
-  for (const commandData of commandsToRegister) {
+  for (const commandData of availableCommands) {
     const name = (commandData as any).name;
     const currentChecksum = commandChecksums.get(name);
 
     if (!currentChecksum) {
-      console.error(`${formatLogTimestamp()}🟥 Commands: Checksum not found for command: ${name}. Skipping registration.`);
+      logToConsole('danger', 'COMMAND_LOADER', `Checksum not found for command: ${name}. Skipping registration.`);
       continue;
     }
 
@@ -122,61 +121,58 @@ export async function loadCommands(
         (process.env.NODE_ENV === 'development' &&
           process.env.FORCE_COMMAND_REFRESH === 'true')
       ) {
-        console.log(`${formatLogTimestamp()}🔄 Commands: Registering/Updating command: /${name} with Discord...`);
-        await client.application?.commands.create(commandData);
-
+        logToConsole('process_repeat', 'COMMAND_LOADER', `/${name} changed. Adding to command registration list.`);
         await Command.upsert({
           name: name,
           description: (commandData as any).description || '',
           lastUpdated: Math.floor(Date.now() / 1000), // Unix timestamp
           checksum: currentChecksum,
         });
-        console.log(`${formatLogTimestamp()}🟩 Commands: Command /${name} registered/updated in Discord and database.`);
+        console.log(commandData);
+        commandsToRegister.push(commandData);
+        
       } else {
-        console.log(`${formatLogTimestamp()}⬜ Commands: Command /${name} is up-to-date. Skipping Discord registration.`);
+        logToConsole('info', 'COMMAND_LOADER', `/${name} matches checksum and is up-to-date. Skipping Discord Registration.`);
       }
     } catch (error) {
-      console.error(`${formatLogTimestamp()}🟥 Commands: Error registering/updating command /${name}:`, error);
-      console.error(error);
+      logToConsole('danger', 'COMMAND_LOADER', `${name} could not be registered or updated: ${error}`);
     }
+    await client.application?.commands.set(commandsToRegister);
   }
-  console.log(`${formatLogTimestamp()}☑️  Commands: All command registration attempts complete.`);
+  logToConsole('process_end', 'COMMAND_LOADER', `All Command Registration & Database Update attempts completed.`);
 
   client.on(Events.InteractionCreate, async (interaction) => {
-    // Only process slash commands
     if (!interaction.isChatInputCommand()) return;
 
     const command = loadedCommands.get(interaction.commandName);
 
     if (!command) {
-      console.error(`${formatLogTimestamp()}🟥 Commands: No loaded command found for /${interaction.commandName}.`);
+      logToConsole('danger', 'COMMAND_LOADER', `No loaded command found for /${interaction.commandName}.`);
       if (!interaction.replied && !interaction.deferred) {
         await interaction.reply({
           content: 'An unknown command was used!',
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
       return;
     }
 
     try {
-      // Execute the command, passing the interaction, client, and sequelize instance
       await command.execute(interaction, client, sequelize);
     } catch (error) {
-      console.error(`${formatLogTimestamp()}🟥 Commands: Error executing command /${interaction.commandName}:`, error);
-      console.error(error); // Log the full error for more details
+      logToConsole('danger', 'COMMAND_LOADER', `Error executing command /${interaction.commandName}: ${error}`);
       if (interaction.deferred || interaction.replied) {
         await interaction.followUp({
           content: 'There was an error while executing this command!',
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       } else {
         await interaction.reply({
           content: 'There was an error while executing this command!',
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
     }
   });
-  console.log(`${formatLogTimestamp()}☑️  Commands: Interaction listener for slash commands setup.`);
+  logToConsole('process_end', 'COMMAND_LOADER', `Interaction Listener for Registered Slash Commands Enabled.`);
 }

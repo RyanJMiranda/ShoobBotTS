@@ -2,7 +2,7 @@ import { Sequelize } from 'sequelize';
 import path from 'path';
 import fs from 'fs/promises';
 import { fileURLToPath, pathToFileURL } from 'url';
-import { formatLogTimestamp } from '../../utils/datetime.js';
+import { logToConsole } from '../../utils/logger.js';
 
 // ESM equivalent of __dirname and __filename
 const __filename = fileURLToPath(import.meta.url);
@@ -16,7 +16,7 @@ const __dirname = path.dirname(__filename);
  * @param sequelize The initialized Sequelize instance.
  */
 export async function syncModels(sequelize: Sequelize): Promise<void> {
-  console.log(formatLogTimestamp() + '🔄 Initializing Sequelize models...');
+  logToConsole('process_start', 'MODEL_SEEDER', 'Initializing models & database connection.');
 
   const modelsDir = path.resolve(__dirname, '../models');
   const modelFiles = (await fs.readdir(modelsDir)).filter((file) =>
@@ -32,18 +32,15 @@ export async function syncModels(sequelize: Sequelize): Promise<void> {
 
       if (typeof modelModule.initializeModel === 'function') {
         modelModule.initializeModel();
-        console.log(formatLogTimestamp() + `🟩 Model initialized: ${modelName}`);
+        logToConsole('success', 'MODEL_SEEDER', `${modelName} has been successfully initialized.`);
       } else {
-        console.warn(
-          formatLogTimestamp() + `🟨 Model file ${file} does not export an 'initializeModel' function.`
-        );
+        logToConsole('warning', 'MODEL_SEEDER', `${file} does not export an 'initializeModel' function.`);
       }
     } catch (error) {
-      console.error(formatLogTimestamp() + `🟥 Error loading or initializing model from ${file}:`, error);
-      console.error(error);
+      logToConsole('danger', 'MODEL_SEEDER', `Error loading or initializing model from ${file}: ${error}`);
     }
   }
 
   await sequelize.sync({ alter: true });
-  console.log(formatLogTimestamp() + '☑️  All models synchronized with the database (tables created/updated).');
+  logToConsole('process_end', 'MODEL_SEEDER', `All models synchronized with the database`);
 }

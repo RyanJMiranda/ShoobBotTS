@@ -22,26 +22,16 @@ const NewMessageCommand: BotCommand = {
       option
         .setName('channel')
         .setDescription('The channel where the message will be sent.')
-        .addChannelTypes(ChannelType.GuildText) // Only allow text channels
+        .addChannelTypes(ChannelType.GuildText)
         .setRequired(true)
     )
-    // Add a String Option for the message content
     .addStringOption((option) =>
       option
         .setName('content')
         .setDescription('The main text content of the message.')
         .setRequired(true)
-        .setMaxLength(2000) // Max length for Discord messages/embed descriptions
+        .setMaxLength(2000)
     )
-    // Add an optional String Option for the embed title
-    .addStringOption((option) =>
-      option
-        .setName('title')
-        .setDescription('The title for the message (e.g., for embeds).')
-        .setRequired(false)
-        .setMaxLength(256) // Max length for embed titles
-    )
-    // Add a String Option with choices for message type
     .addStringOption((option) =>
       option
         .setName('type')
@@ -52,22 +42,27 @@ const NewMessageCommand: BotCommand = {
           { name: 'Embed Message', value: 'embed' }
         )
     )
-    // Add a Number Option for repeat frequency
     .addNumberOption((option) =>
       option
         .setName('repeat_hours')
         .setDescription('How often to repeat the message, in hours (e.g., 24 for daily).')
         .setRequired(true)
-        .setMinValue(0.1) // Minimum repeat time (e.g., 0.1 hours = 6 minutes)
-        .setMaxValue(720) // Maximum repeat time (e.g., 30 days)
+        .setMinValue(0.1)
+        .setMaxValue(720)
     )
-    // Add an optional String Option for embed color (hex code)
+    .addStringOption((option) =>
+      option
+        .setName('title')
+        .setDescription('The title for the message (e.g., for embeds).')
+        .setRequired(false)
+        .setMaxLength(255)
+    )
     .addStringOption((option) =>
       option
         .setName('color')
         .setDescription('Hex color code for the embed (e.g., #FF0000). Only for embed type.')
         .setRequired(false)
-        .setMinLength(7) // #RRGGBB
+        .setMinLength(7)
         .setMaxLength(7)
     )
     // Add an optional String Option for embed footer text
@@ -76,20 +71,17 @@ const NewMessageCommand: BotCommand = {
         .setName('footer')
         .setDescription('Footer text for the embed. Only for embed type.')
         .setRequired(false)
-        .setMaxLength(2048) // Max length for embed footers
+        .setMaxLength(2048)
     )
-    .toJSON(), // Convert the builder to a JSON object for Discord API
+    .toJSON(),
 
-  // === Command Execution Logic ===
   async execute(
     interaction: CommandInteraction,
-    client: Client, // Passed from src/commands/index.ts
-    sequelize: Sequelize // Passed from src/commands/index.ts
+    client: Client,
+    sequelize: Sequelize
   ): Promise<void> {
-    // Acknowledge the interaction immediately to prevent 'interaction failed'
     await interaction.deferReply({ ephemeral: true });
 
-    // Retrieve options from the interaction
     const channel = interaction.options.get('channel', true)?.channel; // Get the Channel object
     const content = interaction.options.get('content', true)?.value as string;
     const title = interaction.options.get('title')?.value as string | undefined;

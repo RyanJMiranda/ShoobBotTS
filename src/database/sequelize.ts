@@ -4,6 +4,7 @@ import type { Options } from 'sequelize';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { existsSync, mkdirSync } from 'fs';
+import { logToConsole } from '../utils/logger.js';
 import { formatLogTimestamp } from '../utils/datetime.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -34,9 +35,9 @@ export async function initializeSequelize(): Promise<Sequelize> {
 
   try {
     await sequelizeInstance.authenticate();
-    console.log(formatLogTimestamp() + '🟩 Database connection (Sequelize) has been established successfully.');
+    logToConsole('success', 'SEQUELIZE', `Database connection successfully established.`);
   } catch (error) {
-    console.error(formatLogTimestamp() + '🟥 Unable to connect to the database (Sequelize):', error);
+    logToConsole('danger', 'SEQUELIZE', `Database connection could not be established: ${error}`);
     throw error;
   }
 

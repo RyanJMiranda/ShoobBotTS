@@ -3,7 +3,7 @@ import { Client } from 'discord.js';
 import path from 'path';
 import fs from 'fs/promises';
 import { fileURLToPath, pathToFileURL } from 'url';
-import { formatLogTimestamp } from '../utils/datetime.js';
+import { logToConsole } from '../utils/logger.js';
 
 // ESM equivalent of __dirname and __filename
 const __filename = fileURLToPath(import.meta.url);
@@ -19,7 +19,7 @@ const moduleFunctions = new Map<string, (client: Client) => Promise<void>>();
  * @param client The Discord client instance.
  */
 export async function loadModules(client: Client): Promise<void> {
-  console.log(formatLogTimestamp() + '🔄 Modules: Starting to load modules from src/modules...');
+  logToConsole('process_start', 'MODULE_LOADER', 'Reading src/modules to begin module loading process.');
 
   const modulesDir = path.join(__dirname);
   const moduleFiles = (await fs.readdir(modulesDir)).filter((file) =>
@@ -39,17 +39,13 @@ export async function loadModules(client: Client): Promise<void> {
       if (typeof module.default === 'function') {
         moduleFunctions.set(moduleName, module.default);
         await module.default(client);
-        console.log(formatLogTimestamp() + `🟩 Modules: ${moduleName} Loaded & Initialized`);
+        logToConsole('success', 'MODULE_LOADER', `${moduleName} Loaded & Initialized`);
       } else {
-        console.warn(
-          formatLogTimestamp() + `🟨 Modules: Module ${moduleName} does not export a default function. Skipping.`
-        );
+        logToConsole('warning', 'MODULE_LOADER', `${moduleName} does not export a default function. Skipping.`);
       }
     } catch (error) {
-      console.error(formatLogTimestamp() + `🟥 Modules: Error loading or initializing module from ${file}:`, error);
-      console.error(error);
+      logToConsole('danger', 'MODULE_LOADER', `Error loading or initializing module from ${file}: ${error}`);
     }
   }
-
-  console.log(formatLogTimestamp() + '☑️  Modules: All module loading attempts complete.');
+  logToConsole('process_end', 'MODULE_LOADER', `All module loading attempts complete.`);
 }

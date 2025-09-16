@@ -8,7 +8,7 @@ import {
 import * as dotenv from 'dotenv';
 import { initializeSequelize } from './database/sequelize.js';
 import { onReady } from './events/ready.js';
-import { formatLogTimestamp } from './utils/datetime.js';
+import { logToConsole } from './utils/logger.js';
 
 dotenv.config();
 
@@ -16,11 +16,11 @@ const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 
 if (!TOKEN) {
-  console.error(formatLogTimestamp() + '🟥 Environment variable DISCORD_TOKEN is not set.');
+  logToConsole('danger', 'BOT', 'Environment variable DISCORD_TOKEN is not set.');
   process.exit(1);
 }
 if (!CLIENT_ID) {
-  console.error(formatLogTimestamp() + '🟥 Environment variable DISCORD_CLIENT_ID is not set.');
+  logToConsole('danger', 'BOT', 'Environment variable DISCORD_CLIENT_ID is not set.');
   process.exit(1);
 }
 
@@ -40,15 +40,14 @@ client.once(Events.ClientReady, async () => {
     await onReady(client, sequelize);
 
   } catch (error) {
-    console.error(formatLogTimestamp() + '🟥 FATAL ERROR: Bot failed to initialize during ClientReady event:', error);
+    logToConsole('danger', 'BOT', `FATAL ERROR: Bot failed to initialize during ClientReady event: ${error}`);
     process.exit(1);
   }
 });
 
 
-client.login(TOKEN).catch((err) => {
-  console.error(formatLogTimestamp() + '🟥 FATAL ERROR: Failed to log in to Discord:', err);
+client.login(TOKEN).catch((error) => {
+  logToConsole('danger', 'BOT', `FATAL ERROR: Failed to log in to Discord: ${error}`);
   process.exit(1);
 });
-
-console.log(formatLogTimestamp() + '🔄 Bot process started. Awaiting Discord login and ClientReady event...');
+logToConsole('process_start', 'BOT', `Bot process started. Awaiting Discord login and ClientReady event...`);
